@@ -1,0 +1,38 @@
+name: Deploy to GitHub Pages
+
+# Запуск при push в main (или замените на нужную ветку)
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write       # для деплоя на Pages
+      id-token: write    # для аутентификации
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Pages
+        uses: actions/setup-pages@v3
+
+      - name: Prepare site for GitHub Pages
+        run: |
+          echo "Listing root directory before copy:"
+          ls -la
+          # Копируем главный HTML-файл в index.html
+          cp 'RM-75 Converter.html' index.html
+          echo "Listing root directory after copy:"
+          ls -la
+
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: ./         # путь к директории с сайтом (корень репозитория)
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
