@@ -18,7 +18,7 @@
   </style>
 </head>
 <body>
-  <h2>Преобразователь RM-75 PDF</h2>
+  <h2>RM-75 PDF Converter</h2>
   <input type="file" id="pdfInput" accept="application/pdf" class="mb-3" />
 
   <div id="chartContainer" style="display:none;"><canvas id="radonChart"></canvas></div>
@@ -137,11 +137,11 @@
       data: tableData,
       columns: [
         { 
-          title: 'Время', 
+          title: 'Time', 
           data: 'time', 
           render: { display: d => formatDateTime(new Date(d)), sort: d => new Date(d).getTime() }
         },
-        { title: 'Значение', data: 'value' }
+        { title: 'Concentration', data: 'value' }
       ],
       paging: true, info: true, lengthChange: true,
       pageLength: 10,
@@ -157,27 +157,27 @@
     if (chart) chart.destroy();
     chart = new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets: [{ label: 'Концентрация', data, fill: false }] },
+      data: { labels, datasets: [{ label: 'Concentration of Rn-222', data, fill: false }] },
       options: {
         maintainAspectRatio: false,
         scales: {
-          x: { title: { display: true, text: 'Время измерения' }},
-          y: { title: { display: true, text: 'Объемная активность, Бк/м3' }}
+          x: { title: { display: true, text: 'Measurement time' }},
+          y: { title: { display: true, text: 'Concentration (Bq/m3)' }}
         }
       }
     });
   }
 
   $('#exportExcel').click(() => {
-    const data = tableData.map(r => ({ 'Время': r.time, 'Значение': r.value }));
-    const ws = XLSX.utils.json_to_sheet(data, { header: ['Время','Значение'], cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
+    const data = tableData.map(r => ({ 'Time': r.time, 'Concentration': r.value }));
+    const ws = XLSX.utils.json_to_sheet(data, { header: ['Time','Concentration'], cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Data');
     XLSX.writeFile(wb, 'radon_data.xlsx', { cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
   });
 
   $('#exportCSV').click(() => {
-    const rows = [['Время','Значение'], ...tableData.map(r => [formatDateTime(r.time), r.value])];
+    const rows = [['Time','Concentration'], ...tableData.map(r => [formatDateTime(r.time), r.value])];
     const csv = rows.map(r => r.join(',')).join('\n');
     downloadBlob(csv, 'text/csv', 'radon_data.csv');
   });
