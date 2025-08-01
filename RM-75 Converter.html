@@ -4,9 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Преобразователь RM-75 PDF</title>
-  <!-- Bootstrap CSS -->
   <link href="libs/bootstrap.min.css" rel="stylesheet" />
-  <!-- DataTables CSS -->
   <link rel="stylesheet" href="libs/jquery.dataTables.min.css" />
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -18,14 +16,23 @@
   </style>
 </head>
 <body>
-  <h2>RM-75 PDF Converter</h2>
-  <input type="file" id="pdfInput" accept="application/pdf" class="mb-3" />
+  <div class="text-center">
+    <div class="h2">Преобразователь данных</div>
+    <div class="h1">Радон-монитора RM-75</div>
+    <span class="h4 text-black-50">v1.0.1</span>
+  </div>
+
+  <div for="pdfInput" class="form-label mb-1">Выберите *.pdf файл <span class="text-black-50">(для PDF без климатических данных)</div>
+  <input type="file" id="pdfInput" accept="application/pdf" class="mb-3"/>
+
+  <div for="manualInput" class="form-label mb-1">Или вставьте данные вручную <span class="text-black-50">(для PDF-файлов с климатическими данными)</span></div>
+  <textarea id="manualInput" rows="5" class="form-control" placeholder="Вставьте сюда строки таблицы, включая заголовки таблицы с 'NO.' и 'Time'..."></textarea>
+  <button id="parseText" class="btn btn-sm btn-primary mt-2 mb-4">Распарсить</button>
 
   <div id="chartContainer" style="display:none;"><canvas id="radonChart"></canvas></div>
   <table id="dataTable" class="display" style="width:100%; display:none;"></table>
   <div class="export-buttons" style="display:none;"><button id="exportExcel" class="btn btn-success btn-sm">Экспорт в Excel</button><button id="exportCSV" class="btn btn-primary btn-sm">Экспорт в CSV</button><button id="exportTXT" class="btn btn-secondary btn-sm">Экспорт в TXT</button></div>
 
-  <!-- Скрипты библиотек (поместите в папку libs/) -->
   <script src="libs/pdf.min.js"></script>
   <script src="libs/pdf.worker.min.js"></script>
   <script src="libs/jquery.min.js"></script>
@@ -35,7 +42,7 @@
   <script src="libs/xlsx.full.min.js"></script>
 
   <script>
-  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+  const pdfjsLib = window['pdfjsLib'];
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
 
   let allRawTables = [];
@@ -50,30 +57,47 @@
 
   $('#pdfInput').on('change', async e => {
     const file = e.target.files[0]; if (!file) return;
+    console.log(e.target.files);
     const buffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    pdfjsLib.getDocument({ data: buffer }).promise
+      .then(pdf => pdf.getPage(1))
+      .then(page => page.getTextContent())
+      .then(tc => console.log('Text items:', tc.items))
+      .catch(err => console.error(err));
+    const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false }).promise;
     let lines = [];
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
-      const map = {};
+      console.log(content);
+      const map = {}; //словарь с ключом - координатой текста, значением - массивом строк текста
       content.items.forEach(item => {
         const txt = item.str.trim(); if (!txt) return;
-        const y = Math.round(item.transform[5]), x = item.transform[4];
+        // Округление координаты y текста, чтобы сгруппировать текст, находящийся примерно на одной строке
+        const y = Math.round(item.transform[5]);
+        const x = item.transform[4];
+        // Если даннного ключа-координаты нет в тексте, то добавляем пустой массив для данного ключа
         if (!map[y]) map[y] = [];
         map[y].push({ str: txt, x });
       });
       Object.keys(map).map(Number).sort((a, b) => b - a).forEach(y => {
         lines.push(map[y].sort((a, b) => a.x - b.x).map(i => i.str).join(' '));
       });
+      console.log('PDF lines:', lines);
     }
     detectTables(lines);
-
-    // Объединяем все найденные сырые строки таблиц в один массив
     const combinedRows = allRawTables.flat();
-    // Затем парсим их все разом
     tableData = parseRows(combinedRows);
+    renderTable();
+    renderChart();
+    $('.export-buttons').show();
+  });
 
+  $('#parseText').on('click', () => {
+    const rawText = $('#manualInput').val();
+    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+    const rows = lines.filter(ln => /^\d{5}/.test(ln));
+    tableData = parseRows(rows);
     renderTable();
     renderChart();
     $('.export-buttons').show();
@@ -83,9 +107,12 @@
     allRawTables = [];
     lines.forEach((ln, i) => {
       if (ln.includes('NO.') && ln.includes('Time')) {
-        let rows = [], j = i + 1;
+        let rows = [];
+        let j = i + 1;
         while (j < lines.length && /^\d+/.test(lines[j])) rows.push(lines[j++]);
         if (rows.length) allRawTables.push(rows);
+        console.log('Table was detected!');
+        console.log(rows.slice(0,10));
       }
     });
   }
@@ -118,16 +145,19 @@
       }
       if (currentDate === null || baseSec === null) return;
 
+      const isClimate = parts.length >= 20;
       for (let j = 0; j < 6; j++) {
-        const raw = parts[2 + j];
-        const value = parseFloat(raw?.replace(',', '.'));
-        if (!isNaN(value)) {
+        const idx = 2 + j * (isClimate ? 3 : 1);
+        const radon = parseFloat(parts[idx]?.replace(',', '.'));
+        const temperature = isClimate ? parseFloat(parts[idx + 1]?.replace(',', '.')) : null;
+        const humidity = isClimate ? parseFloat(parts[idx + 2]?.replace(',', '.')) : null;
+
+        if (!isNaN(radon)) {
           const time = new Date(currentDate.getTime() + (baseSec + j * 1800) * 1000);
-          res.push({ col1: parts[0]||'', col2: parts[1]||'', time, value });
+          res.push({ time, radon, temperature: isNaN(temperature) ? null : temperature, humidity: isNaN(humidity) ? null : humidity });
         }
       }
     });
-
     return res;
   }
 
@@ -136,16 +166,23 @@
       destroy: true,
       data: tableData,
       columns: [
-        { 
-          title: 'Time', 
-          data: 'time', 
-          render: { display: d => formatDateTime(new Date(d)), sort: d => new Date(d).getTime() }
+        {
+          title: 'Time',
+          data: 'time',
+          render: {
+            display: d => formatDateTime(new Date(d)),
+            sort: d => new Date(d).getTime()
+          }
         },
-        { title: 'Concentration', data: 'value' }
+        { title: 'Concentration', data: 'radon' },
+        { title: 'Temperature (°C)', data: 'temperature', visible: tableData.some(r => r.temperature !== null) },
+        { title: 'Humidity (%)', data: 'humidity', visible: tableData.some(r => r.humidity !== null) }
       ],
-      paging: true, info: true, lengthChange: true,
+      paging: true,
+      info: true,
+      lengthChange: true,
       pageLength: 10,
-      lengthMenu: [[5,10,25,50,-1],[5,10,25,50,'All']]
+      lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, 'All']]
     });
   }
 
@@ -153,37 +190,67 @@
     $('#chartContainer').show();
     const ctx = document.getElementById('radonChart').getContext('2d');
     const labels = tableData.map(r => formatDateTime(r.time));
-    const data = tableData.map(r => r.value);
+    const data = tableData.map(r => r.radon);
     if (chart) chart.destroy();
     chart = new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets: [{ label: 'Concentration of Rn-222', data, fill: false }] },
+      data: {
+        labels,
+        datasets: [{ label: 'Concentration of Rn-222', data, fill: false }]
+      },
       options: {
         maintainAspectRatio: false,
         scales: {
-          x: { title: { display: true, text: 'Measurement time' }},
-          y: { title: { display: true, text: 'Concentration (Bq/m3)' }}
+          x: { title: { display: true, text: 'Measurement time' } },
+          y: { title: { display: true, text: 'Concentration (Bq/m3)' } }
         }
       }
     });
   }
 
   $('#exportExcel').click(() => {
-    const data = tableData.map(r => ({ 'Time': r.time, 'Concentration': r.value }));
-    const ws = XLSX.utils.json_to_sheet(data, { header: ['Time','Concentration'], cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
+    const data = tableData.map(r => ({
+      'Time': r.time,
+      'Concentration': r.radon,
+      ...(r.temperature !== null && { 'Temperature (°C)': r.temperature }),
+      ...(r.humidity !== null && { 'Humidity (%)': r.humidity })
+    }));
+    const ws = XLSX.utils.json_to_sheet(data, { cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Data');
     XLSX.writeFile(wb, 'radon_data.xlsx', { cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
   });
 
   $('#exportCSV').click(() => {
-    const rows = [['Time','Concentration'], ...tableData.map(r => [formatDateTime(r.time), r.value])];
+    const includeTemp = tableData.some(r => r.temperature !== null);
+    const includeHum = tableData.some(r => r.humidity !== null);
+    const headers = ['Time', 'Concentration'];
+    if (includeTemp) headers.push('Temperature (°C)');
+    if (includeHum) headers.push('Humidity (%)');
+    const rows = [headers];
+    for (const r of tableData) {
+      const row = [formatDateTime(r.time), r.radon];
+      if (includeTemp) row.push(r.temperature ?? '');
+      if (includeHum) row.push(r.humidity ?? '');
+      rows.push(row);
+    }
     const csv = rows.map(r => r.join(',')).join('\n');
     downloadBlob(csv, 'text/csv', 'radon_data.csv');
   });
 
   $('#exportTXT').click(() => {
-    const txt = tableData.map(r => `${formatDateTime(r.time)}\t${r.value}`).join('\n');
+    const includeTemp = tableData.some(r => r.temperature !== null);
+    const includeHum = tableData.some(r => r.humidity !== null);
+    const header = ['Time', 'Concentration'];
+    if (includeTemp) header.push('Temperature (°C)');
+    if (includeHum) header.push('Humidity (%)');
+    let txt = header.join('\t') + '\n';
+    for (const r of tableData) {
+      const row = [formatDateTime(r.time), r.radon];
+      if (includeTemp) row.push(r.temperature ?? '');
+      if (includeHum) row.push(r.humidity ?? '');
+      txt += row.join('\t') + '\n';
+    }
     downloadBlob(txt, 'text/plain', 'radon_data.txt');
   });
 
