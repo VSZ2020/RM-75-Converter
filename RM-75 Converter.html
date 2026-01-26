@@ -33,8 +33,8 @@
   <table id="dataTable" class="display" style="width:100%; display:none;"></table>
   <div class="export-buttons" style="display:none;"><button id="exportExcel" class="btn btn-success btn-sm">Экспорт в Excel</button><button id="exportCSV" class="btn btn-primary btn-sm">Экспорт в CSV</button><button id="exportTXT" class="btn btn-secondary btn-sm">Экспорт в TXT</button></div>
 
-  <script src="libs/pdf.min.js"></script>
-  <script src="libs/pdf.worker.min.js"></script>
+  <script src="libs/pdfjs/pdf.js"></script>
+  <script src="libs/pdfjs/pdf.worker.js"></script>
   <script src="libs/jquery.min.js"></script>
   <script src="libs/bootstrap.bundle.min.js"></script>
   <script src="libs/jquery.dataTables.min.js"></script>
@@ -42,8 +42,8 @@
   <script src="libs/xlsx.full.min.js"></script>
 
   <script>
-  const pdfjsLib = window['pdfjsLib'];
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
+  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdfjs/pdf.worker.js';
 
   let allRawTables = [];
   let tableData = [];
@@ -57,13 +57,13 @@
 
   $('#pdfInput').on('change', async e => {
     const file = e.target.files[0]; if (!file) return;
-    console.log(e.target.files);
     const buffer = await file.arrayBuffer();
     pdfjsLib.getDocument({ data: buffer }).promise
-      .then(pdf => pdf.getPage(1))
+      .then(pdf => pdf.getPage(3))
       .then(page => page.getTextContent())
       .then(tc => console.log('Text items:', tc.items))
       .catch(err => console.error(err));
+
     const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false }).promise;
     let lines = [];
     for (let p = 1; p <= pdf.numPages; p++) {
