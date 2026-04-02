@@ -22,11 +22,11 @@
     <span class="h4 text-black-50">v1.0.2</span>
   </div>
 
-  <div for="pdfInput" class="form-label mb-1">Выберите *.pdf файл <span class="text-black-50">(для PDF без климатических данных)</div>
+  <div for="pdfInput" class="form-label mb-1">Выберите *.pdf файл</div>
   <input type="file" id="pdfInput" accept="application/pdf" class="mb-3"/>
 
   <div for="manualInput" class="form-label mb-1">Или вставьте данные вручную <span class="text-black-50">(для PDF-файлов с климатическими данными)</span></div>
-  <textarea id="manualInput" rows="5" class="form-control" placeholder="Вставьте сюда строки таблицы, включая заголовки таблицы с 'NO.' и 'Time'..."></textarea>
+  <textarea id="manualInput" rows="5" class="form-control" placeholder="Или вставьте сюда строки таблицы, включая заголовки таблицы с 'NO.' и 'Time'..."></textarea>
   <button id="parseText" class="btn btn-sm btn-primary mt-2 mb-4">Распарсить</button>
 
   <div id="chartContainer" style="display:none;"><canvas id="radonChart"></canvas></div>
