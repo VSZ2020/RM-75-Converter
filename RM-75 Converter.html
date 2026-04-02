@@ -19,7 +19,7 @@
   <div class="text-center">
     <div class="h2">Преобразователь данных</div>
     <div class="h1">Радон-монитора RM-75</div>
-    <span class="h4 text-black-50">v1.0.1</span>
+    <span class="h4 text-black-50">v1.0.2</span>
   </div>
 
   <div for="pdfInput" class="form-label mb-1">Выберите *.pdf файл <span class="text-black-50">(для PDF без климатических данных)</div>
@@ -64,7 +64,7 @@
       .then(tc => console.log('Text items:', tc.items))
       .catch(err => console.error(err));
 
-    const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false, cMapUrl: 'libs/pdfjs/cmaps/', cMapPacked: true }).promise;
     let lines = [];
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
