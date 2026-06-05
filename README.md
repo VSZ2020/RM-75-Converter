@@ -3,7 +3,7 @@
 
 ![Монитор радона AIKESI RM-75](images/image-0.png)
 
-<span style="font-style:italic;color:gray;">Изображение с <a href="https://www.alibaba.com/product-detail/AIKESI-RM-75-Factory-OEM-Smart_1601173171365.html">источника</a></span>
+*Изображение с [источника](https://www.alibaba.com/product-detail/AIKESI-RM-75-Factory-OEM-Smart_1601173171365.html)*
 
 Обоснование разработки утилиты: результаты измерений в PDF-отчете производителя даны в компактном представлении с интервалом 30 мин по столбцам и 3 часа по строкам, что неудобно для 
 
