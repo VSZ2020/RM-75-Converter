@@ -1,10 +1,31 @@
 # RM-75 Converter
-This is the tool for convertation of PDF reports from Radon Monitor (RM-75) to the wide-spread formats like `Excel`, `CSV` or `TXT`.
-To properly work with tool 'libs' directory required. It contains libraries like chart.js, jquery et al. to work with PDF files of reports offline.
+Данная утилита предназначена для парсинга данных из PDF-отчетов, генерируемых мониторами радона Radon Monitor RM-75 (доступен под брендом AIKESI, либо безымянным брендом на маркетплейсах). 
 
-# How to work
-1. Download all files from repository (`*.html`, `libs` folder) to your computer.
-2. Run `RM-75 Converter.hmtl` in any of your browser.
-3. Choose PDF file from computer if your file doesn't contain microclimate data like a temperature of humidity.
-4. If you have microclimate data, copy table from the PDF-file as text and past it into the textbox. Press 'Parse' button to process table data.
-5. Read data would be appeared on screen in chart and table form.
+![Монитор радона AIKESI RM-75](images/image-0.png)
+
+<span style="font-style:italic;color:gray;">Изображение с <a href="https://www.alibaba.com/product-detail/AIKESI-RM-75-Factory-OEM-Smart_1601173171365.html">источника</a></span>
+
+Обоснование разработки утилиты: результаты измерений в PDF-отчете производителя даны в компактном представлении с интервалом 30 мин по столбцам и 3 часа по строкам, что неудобно для 
+
+![Пример таблицы с результатами](images/image-3.png)
+
+## Ввод данных
+
+Доступно два варианта загрузки данных в утилиту:
+- ручной,
+- автоматический.
+
+В `ручном` режиме пользователь копирует таблицы из файла PDF-отчета и вставляет в соответствующее поле для ввода. Для начала обработки (парсинга) необходимо нажать кнопку `Начать парсинг из поля ввода`.
+
+![Поле ручной вставки данных](images/image.png)
+
+
+В `автоматическом` режиме пользователь выбирает файл PDF-отчета на своем компьтере, а утилита автоматически считывает из него данные.
+
+![Поле выбора файла для загрузки](images/image-1.png)
+
+## Результат
+Результатом будет таблица с временными метками (стандартно - 30 мин), считанными значениями объемной активности радона, температуры (при наличии) и влажности (при наличии).
+
+![Таблица с результатами измерений](images/image-2.png)
+

@@ -1,269 +1,1468 @@
-<!DOCTYPE html>
 <html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Преобразователь RM-75 PDF</title>
-  <link href="libs/bootstrap.min.css" rel="stylesheet" />
-  <link rel="stylesheet" href="libs/jquery.dataTables.min.css" />
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #chartContainer { width: 100%; margin: 30px 0; }
-    #radonChart { width: 100% !important; height: auto !important; }
-    table.dataTable th, table.dataTable td { padding: 4px 6px; font-size: 0.9rem; }
-    .export-buttons { margin-top: 10px; }
-    .export-buttons button { margin-right: 5px; }
-  </style>
-</head>
-<body>
-  <div class="text-center">
-    <div class="h2">Преобразователь данных</div>
-    <div class="h1">Радон-монитора RM-75</div>
-    <span class="h4 text-black-50">v1.0.2</span>
-  </div>
+    <head>
+        <title></title>
+        <meta charset="UTF-8">
+        <style>
+            :root {
+                --b-radius: 5px;
+            }
 
-  <div for="pdfInput" class="form-label mb-1">Выберите *.pdf файл</div>
-  <input type="file" id="pdfInput" accept="application/pdf" class="mb-3"/>
+            * { box-sizing: border-box; }
 
-  <div for="manualInput" class="form-label mb-1">Или вставьте данные вручную <span class="text-black-50">(для PDF-файлов с климатическими данными)</span></div>
-  <textarea id="manualInput" rows="5" class="form-control" placeholder="Или вставьте сюда строки таблицы, включая заголовки таблицы с 'NO.' и 'Time'..."></textarea>
-  <button id="parseText" class="btn btn-sm btn-primary mt-2 mb-4">Распарсить</button>
+            body {
+                font-family: Arial;
+                margin: 20px;
+            }
 
-  <div id="chartContainer" style="display:none;"><canvas id="radonChart"></canvas></div>
-  <table id="dataTable" class="display" style="width:100%; display:none;"></table>
-  <div class="export-buttons" style="display:none;"><button id="exportExcel" class="btn btn-success btn-sm">Экспорт в Excel</button><button id="exportCSV" class="btn btn-primary btn-sm">Экспорт в CSV</button><button id="exportTXT" class="btn btn-secondary btn-sm">Экспорт в TXT</button></div>
+            textarea {
+                border: 1px solid lightgray;
+                border-radius: var(--b-radius);
+                padding: 8px;
+                font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            }
 
-  <script src="libs/pdfjs/pdf.js"></script>
-  <script src="libs/pdfjs/pdf.worker.js"></script>
-  <script src="libs/jquery.min.js"></script>
-  <script src="libs/bootstrap.bundle.min.js"></script>
-  <script src="libs/jquery.dataTables.min.js"></script>
-  <script src="libs/chart.min.js"></script>
-  <script src="libs/xlsx.full.min.js"></script>
+            table, th, td {
+                border: 1px solid lightgray;
+                border-collapse: collapse;
+                text-align: center;
+            }
 
-  <script>
-  const pdfjsLib = window['pdfjs-dist/build/pdf'];
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdfjs/pdf.worker.js';
+            th, td {
+                padding: 8px;
+            }
 
-  let allRawTables = [];
-  let tableData = [];
-  let chart;
+            th {
+                word-wrap: break-word;
+            }
 
-  const locale = navigator.language;
-  const formatDateTime = d => d.toLocaleString(locale, {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
+            h1 {
+                margin-bottom: 0px;
+            }
 
-  $('#pdfInput').on('change', async e => {
-    const file = e.target.files[0]; if (!file) return;
-    const buffer = await file.arrayBuffer();
-    pdfjsLib.getDocument({ data: buffer }).promise
-      .then(pdf => pdf.getPage(3))
-      .then(page => page.getTextContent())
-      .then(tc => console.log('Text items:', tc.items))
-      .catch(err => console.error(err));
+            .btn {
+                padding: 8px;
+                border: 1px solid lightgray;
+                border-radius: var(--b-radius);
+            }
 
-    const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false, cMapUrl: 'libs/pdfjs/cmaps/', cMapPacked: true }).promise;
-    let lines = [];
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      console.log(content);
-      const map = {}; //словарь с ключом - координатой текста, значением - массивом строк текста
-      content.items.forEach(item => {
-        const txt = item.str.trim(); if (!txt) return;
-        // Округление координаты y текста, чтобы сгруппировать текст, находящийся примерно на одной строке
-        const y = Math.round(item.transform[5]);
-        const x = item.transform[4];
-        // Если даннного ключа-координаты нет в тексте, то добавляем пустой массив для данного ключа
-        if (!map[y]) map[y] = [];
-        map[y].push({ str: txt, x });
-      });
-      Object.keys(map).map(Number).sort((a, b) => b - a).forEach(y => {
-        lines.push(map[y].sort((a, b) => a.x - b.x).map(i => i.str).join(' '));
-      });
-      console.log('PDF lines:', lines);
-    }
-    detectTables(lines);
-    const combinedRows = allRawTables.flat();
-    tableData = parseRows(combinedRows);
-    renderTable();
-    renderChart();
-    $('.export-buttons').show();
-  });
+            .btn:hover { background: #d1d1d1; }
 
-  $('#parseText').on('click', () => {
-    const rawText = $('#manualInput').val();
-    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
-    const rows = lines.filter(ln => /^\d{5}/.test(ln));
-    tableData = parseRows(rows);
-    renderTable();
-    renderChart();
-    $('.export-buttons').show();
-  });
+            .title {
+                font-weight: bold;
+            }
 
-  function detectTables(lines) {
-    allRawTables = [];
-    lines.forEach((ln, i) => {
-      if (ln.includes('NO.') && ln.includes('Time')) {
-        let rows = [];
-        let j = i + 1;
-        while (j < lines.length && /^\d+/.test(lines[j])) rows.push(lines[j++]);
-        if (rows.length) allRawTables.push(rows);
-        console.log('Table was detected!');
-        console.log(rows.slice(0,10));
-      }
-    });
-  }
+            .subheader {
+                font-size: 14px;
+                color: gray;
+            }
 
-  function parseRows(rows) {
-    const res = [];
-    let currentDate = null;
-    const last = rows.length - 1;
-    const dateRx = /^\d{2}-\d{2}-\d{2}$/;
-    const timeRx = /^\d{2}:\d{2}/;
+            .input {
+                width: 100%;
+            }
 
-    rows.forEach((line, i) => {
-      const parts = line.trim().split(/\s+/);
-      let baseSec = null;
+            .mb-3 {
+                margin-bottom: 3px;
+            }
+            .mb-5 {
+                margin-bottom: 5px;
+            }
+            .mb-12 {
+                margin-bottom: 12px;
+            }
+            .mt-3 {
+                margin-top: 3px;
+            }
+            .mt-5 {
+                margin-top: 5px;
+            }
+            .ml-5 {
+                margin-left: 5px;
+            }
 
-      if (dateRx.test(parts[1])) {
-        const [yy, mm, dd] = parts[1].split('-').map(Number);
-        currentDate = new Date(2000 + yy, mm - 1, dd);
-        if (i < last) {
-          const np = rows[i + 1].trim().split(/\s+/);
-          if (timeRx.test(np[1])) {
-            const [h, m, s = 0] = np[1].split(':').map(Number);
-            baseSec = Math.max(0, h * 3600 + m * 60 + s - 3 * 3600);
-          }
-        }
-        if (baseSec === null) baseSec = 0;
-      } else if (timeRx.test(parts[1]) && currentDate) {
-        const [h, m, s = 0] = parts[1].split(':').map(Number);
-        baseSec = h * 3600 + m * 60 + s;
-      }
-      if (currentDate === null || baseSec === null) return;
+            .input-wrap {
+                width: 100%;
+                display: block;
+            }
 
-      const isClimate = parts.length >= 20;
-      for (let j = 0; j < 6; j++) {
-        const idx = 2 + j * (isClimate ? 3 : 1);
-        const radon = parseFloat(parts[idx]?.replace(',', '.'));
-        const temperature = isClimate ? parseFloat(parts[idx + 1]?.replace(',', '.')) : null;
-        const humidity = isClimate ? parseFloat(parts[idx + 2]?.replace(',', '.')) : null;
+            .card {
+                border: 1px solid lightgray;
+                border-radius: var(--b-radius);
+                padding: 12px;
+                background-color: rgb(248, 248, 248);
+            }
 
-        if (!isNaN(radon)) {
-          const time = new Date(currentDate.getTime() + (baseSec + j * 1800) * 1000);
-          res.push({ time, radon, temperature: isNaN(temperature) ? null : temperature, humidity: isNaN(humidity) ? null : humidity });
-        }
-      }
-    });
-    return res;
-  }
+            .toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                align-items: center;
+            }
 
-  function renderTable() {
-    $('#dataTable').show().DataTable({
-      destroy: true,
-      data: tableData,
-      columns: [
-        {
-          title: 'Time',
-          data: 'time',
-          render: {
-            display: d => formatDateTime(new Date(d)),
-            sort: d => new Date(d).getTime()
-          }
-        },
-        { title: 'Concentration', data: 'radon' },
-        { title: 'Temperature (°C)', data: 'temperature', visible: tableData.some(r => r.temperature !== null) },
-        { title: 'Humidity (%)', data: 'humidity', visible: tableData.some(r => r.humidity !== null) }
-      ],
-      paging: true,
-      info: true,
-      lengthChange: true,
-      pageLength: 10,
-      lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, 'All']]
-    });
-  }
+            .canvas-wrap {
+                position: relative;
+                width: 100%;
+                height: 420px;
+                background: #fff;
+            }
 
-  function renderChart() {
-    $('#chartContainer').show();
-    const ctx = document.getElementById('radonChart').getContext('2d');
-    const labels = tableData.map(r => formatDateTime(r.time));
-    const data = tableData.map(r => r.radon);
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{ label: 'Concentration of Rn-222', data, fill: false }]
-      },
-      options: {
-        maintainAspectRatio: false,
-        scales: {
-          x: { title: { display: true, text: 'Measurement time' } },
-          y: { title: { display: true, text: 'Concentration (Bq/m3)' } }
-        }
-      }
-    });
-  }
+            canvas {
+                display: block;
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+                cursor: crosshair;
+            }
 
-  $('#exportExcel').click(() => {
-    const data = tableData.map(r => ({
-      'Time': r.time,
-      'Concentration': r.radon,
-      ...(r.temperature !== null && { 'Temperature (°C)': r.temperature }),
-      ...(r.humidity !== null && { 'Humidity (%)': r.humidity })
-    }));
-    const ws = XLSX.utils.json_to_sheet(data, { cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Data');
-    XLSX.writeFile(wb, 'radon_data.xlsx', { cellDates: true, dateNF: 'dd.mm.yyyy hh:mm:ss' });
-  });
+            .overlay {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+            }
 
-  $('#exportCSV').click(() => {
-    const includeTemp = tableData.some(r => r.temperature !== null);
-    const includeHum = tableData.some(r => r.humidity !== null);
-    const headers = ['Time', 'Concentration'];
-    if (includeTemp) headers.push('Temperature (°C)');
-    if (includeHum) headers.push('Humidity (%)');
-    const rows = [headers];
-    for (const r of tableData) {
-      const row = [formatDateTime(r.time), r.radon];
-      if (includeTemp) row.push(r.temperature ?? '');
-      if (includeHum) row.push(r.humidity ?? '');
-      rows.push(row);
-    }
-    const csv = rows.map(r => r.join(',')).join('\n');
-    downloadBlob(csv, 'text/csv', 'radon_data.csv');
-  });
+            .alert {
+                padding: 16px 20px;
+                border-radius: var(--b-radius);
+                font-family: system-ui, -apple-system, sans-serif;
+                font-size: 15px;
+                font-weight: 500;
+                display: flex;
+                align-items: center;
+                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+            }
 
-  $('#exportTXT').click(() => {
-    const includeTemp = tableData.some(r => r.temperature !== null);
-    const includeHum = tableData.some(r => r.humidity !== null);
-    const header = ['Time', 'Concentration'];
-    if (includeTemp) header.push('Temperature (°C)');
-    if (includeHum) header.push('Humidity (%)');
-    let txt = header.join('\t') + '\n';
-    for (const r of tableData) {
-      const row = [formatDateTime(r.time), r.radon];
-      if (includeTemp) row.push(r.temperature ?? '');
-      if (includeHum) row.push(r.humidity ?? '');
-      txt += row.join('\t') + '\n';
-    }
-    downloadBlob(txt, 'text/plain', 'radon_data.txt');
-  });
+            .alert-error {
+                background-color: rgba(239, 68, 68, 0.15); 
+                color: #b91c1c; 
+                border: 1px solid rgba(239, 68, 68, 0.3); 
+            }
 
-  function downloadBlob(content, mime, filename) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-  </script>
-</body>
+            .footer {
+                font-size: 12px;
+                font-style: italic;
+                color: lightgray;
+                text-align: center;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            .input-container {
+                margin-left: auto;
+            }
+
+            #pdfInput {
+                border: 1px solid lightgray;
+                border-radius: var(--b-radius);
+                padding: 8px;
+            }
+            
+            #tablesContainer{
+                display: inline-flex;
+                align-items: stretch;
+            }
+
+            #metadataContainer {
+                color: gray;
+                font-size: 14px;
+            }
+
+            
+        </style>
+    </head>
+    <body>
+        <h1>RM-75 Converter <span style="color:gray; font-size: small">v 1.0.3</span></h1>
+        <div class="subheader mb-5">Чтение и парсинг данных из PDF-отчетов мониторов радона Radon Monitor RM-75 производства AIKESI и подобных</div>
+        <section class="card input-wrap mb-5">
+            <div class="title mb-5">Ручная вставка данных</div>
+            <textarea class="input mb-12" id="manualInput" rows="12" placeholder="Скопируйте таблицу напрямую из PDF-отчета монитора радона.
+Пример входных данных:
+NO.       Time       Bq/m3       ℃        %   Bq/m3       ℃        %   Bq/m3       ℃        %   Bq/m3       ℃        %   Bq/m3       ℃        %     Bq/m3     ℃        %
+00001    25-07-23     125       24.0      62    125       25.1      62    62        25.5      59    31        25.6      57    31        25.7      56    143       30.0      57  
+00002    12:01:15     156       30.0      54    156       27.4      52    49        27.6      52    36        27.4      51    23        27.5      51    36        27.6      53  
+00003    15:01:15     42        27.0      53    42        26.4      50    27        26.4      50    25        26.4      50    18        26.4      50    23        26.4      50  
+... и так далее.
+
+Удалять лишние строки таблицы и пробелы не требуется. Программа автоматически отфильтрует нужные строки.
+"></textarea>
+            <div class="toolbar">
+                <button id="parseDataBtn" class="btn">Начать парсинг из поля ввода</button>
+                <button id="clearInputBtn" class="btn">Очистить поле ввода</button>
+                <div class="input-container">
+                    <span class="title">или выберите файл для загрузки</span>
+                    <input id="pdfInput" type="file" accept="application/pdf">
+                </div>
+            </div>
+        </section>
+
+        <section class="card mb-5">
+            <div class="title mb-3">Метаданные из PDF-отчета</div>
+            <div id="metadataContainer">Нет метаданных</div>
+        </section>
+
+        <section class="alert alert-error mb-5 hidden" id="alert_box">
+            
+        </section>
+
+        <section class="card mb-5">
+            <div class="title mb-3">Область построения данных</div>
+            <div class="toolbar mb-5">
+                <button id="resetZoomBtn" class="btn">Сброс масштаба</button>
+                <button id="logYBtn" class="btn">Лог Y</button>
+            </div>
+            <div class="canvas-wrap">
+                <canvas id="chart"></canvas>
+                <div class="overlay"></div>
+            </div>
+        </section>
+
+        <section class="card mb-5"> 
+            <div class="title mb-3">Распарсенные данные</div>
+            <div class="toolbar mb-5">
+                <button id="exportToBufferBtn" class="btn" disabled>Экспорт данных в Буфер обмена</button>
+                <button id="bringToFullHourBtn" class="btn">Привести данные к полному часу</button>
+                <button id="exportToBufferInterpolatedBtn" class="btn hidden">Экспорт интерполированных данных в Буфер обмена</button>
+            </div>
+            <div id="tablesContainer">
+
+            </div>
+        </section>
+        <!--Footer-->
+        <div class="footer">
+            <div>Developed by Izgagin V. S., 2026</div>
+        </div>
+        <script src="libs/pdfjs/pdf.js"></script>
+        <script src="libs/pdfjs/pdf.worker.js"></script>
+
+        <script>
+            const $ = id => document.getElementById(id);
+            const canvas = $("chart");
+            const ctx = canvas.getContext("2d");
+
+            const dataInput = $("manualInput");
+            const pdfInput = $("pdfInput");
+            const outputTable = $("outputTable");
+
+            const parseBtn = $("parseDataBtn");
+            const clearInputBtn = $("clearInputBtn");
+            const bringToFullHourBtn = $("bringToFullHourBtn");
+            const exportToBufferBtn = $("exportToBufferBtn");
+            const exportToBufferInterpolatedBtn = $("exportToBufferInterpolatedBtn");
+
+            const alertBox = $("alert_box");
+            const metadataContainer = $("metadataContainer");
+            const lineSplitRegex = /\s{2,}/;
+            const dateOnlyFormat = /^\d{2}-\d{2}-\d{2}/;
+            const timeOnlyFormat = /^\d{2}:\d{2}:\d{2}/;
+            const dateTimeFormat = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/;
+            let messages = [];
+
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdfjs/pdf.worker.js';
+
+            const state = {
+                rows: [],
+                interpolatedRows: [],
+                dataMinX: 0,
+                dataMaxX: 1,
+                dataMinY: 0,
+                dataMaxY: 1,
+                viewMinX: 0,
+                viewMaxX: 1,
+                viewMinY: 0,
+                viewMaxY: 1,
+                dragging: false,
+                panning: false,
+                dragStart: null,
+                lastPt: null,
+                needsRender: true,
+                mouseX: null,
+                mouseY: null,
+                cursorIndex: -1,
+                logY: false,
+            };
+
+            const M = { l: 82, r: 20, t: 18, b: 58 };	// Отступы от крев canvas для осей и подписей
+
+            const metadata = {
+                serialNumber: null,
+                sensors: null,
+                recordInterval: null,
+                numberOfRecords: null,
+                recordDuration: null,
+                startTime: null,
+                stopTime: null,
+            };
+
+            function notifyUser(msg, level = "info"){
+                messages.push({level: "info", text: msg});
+            }
+
+            function clearNotifications(){
+                messages = [];
+            }
+
+            function detectDateTimeFormat(line){
+                const parts = line.split(/\s{2,}/).map(v => v.trim());
+                const date_part = parts[1];
+                console.log(`Detecting date format for part: ${date_part}`);
+                if (dateOnlyFormat.test(date_part) || timeOnlyFormat.test(date_part))
+                    return "date_or_time";
+
+                if (dateTimeFormat.test(date_part))
+                    return "datetime";
+
+                return null;
+            }
+
+            function detectDataFormat(line, dataOffset = 2){
+                const radonFormat = /\d{1,4}/;
+                const tempFormat = /\d{2}\.\d{1}/;
+                const humidFormat = /\d{2}/;
+
+                const parts = line.split(lineSplitRegex).map(v => v.trim());
+                if (radonFormat.test(parts[dataOffset]) && tempFormat.test(parts[dataOffset + 1]) && humidFormat.test(parts[dataOffset + 2]))
+                    return "radon_temp_humid";
+
+                if (radonFormat.test(parts[dataOffset]) && radonFormat.test(parts[dataOffset + 1]) && radonFormat.test(parts[dataOffset + 2]))
+                    return "radon_only";
+            }
+
+            function parseCurrentDateTime(part, dateFormatType = "date_or_time", previousDate = null, nextLineDateTime = null){
+                let currentDate = null;
+                if (dateFormatType === "datetime"){
+                    const [yyyy, mm, dd, h, m] = part.split(/[\s:-]/).map(Number);
+                    return new Date(yyyy, mm - 1, dd, h, m);
+                }
+
+                if (dateFormatType === "date_or_time"){
+                    if (dateOnlyFormat.test(part)){
+                        if (nextLineDateTime === null){
+                            console.log(`Error at line: ${part}. Next line is required, but it is NULL`);
+                            return null;
+                        }
+                        if (!timeOnlyFormat.test(nextLineDateTime)){
+                            console.log(`Error at line: ${part}. Next line time has not required format or empty`);
+                            return null;
+                        }
+                        // Get time from next line
+                        const [h, m, s = 0] = nextLineDateTime.split(":").map(Number);
+                        const [yy, mm, dd] = part.split("-").map(Number);
+                        return new Date(yy + 2000, mm - 1, dd, h - 3, m, s);
+                    } 
+                    if (timeOnlyFormat.test(part)){
+                        if (previousDate === null){
+                            console.log(`Error at line: ${part}. Previous date required, but it is NULL`);
+                            return null;
+                        }
+                        const [h, m, s = 0] = part.split(":").map(Number);
+                        const baseSec = Math.max(0, h * 3600 + m * 60 + s);
+                        const baseDate = new Date(previousDate.getFullYear(), previousDate.getMonth(), previousDate.getDate(),0,0,0,0); 
+                        return new Date(baseDate.getTime() + baseSec * 1000);
+                    }   
+                }
+                
+                console.log("Error: Parsing DateTime error. Error at " + part);
+                return new Date(2000, 1, 1, 0, 0, 0);
+            }
+            
+            function readTextInput(){
+                clearMetadata();
+
+                const rawData = dataInput.value;
+                const lines = rawData.split("\n").map(line => line.trim());
+                // Оставляем только строки с полезными пронумерованными массивами данными
+                const usefullLines = lines.filter(line => /^\d{5}/.test(line));
+
+                processLines(usefullLines);
+            }
+
+            function clearTextInput(){
+                dataInput.value = "";
+            }
+
+            function clearMetadata(){
+                metadataContainer.innerHTML = "Нет метаданных";
+                metadata.serialNumber = null;
+                metadata.sensors = null;
+                metadata.recordInterval = null;
+                metadata.numberOfRecords = null;
+                metadata.recordDuration = null;
+                metadata.startTime = null;
+                metadata.stopTime = null;
+            }
+
+            function parsePdfMetadata(lines){
+                const serialRegx = /(?:Serial\sNumber:|SN:)\s+(\w{1}\d{8})/;
+                const sensorsRegx = /Sensor:\s+(\w+)/;
+                const recordIntervalRegx = /(?:Record\sInterval:|REC\sInterval:)\s+(\d{2}\s\w+)/;
+                const numberOfRecordsRegx = /(?:Number\sOf\sRecords:|REC\sLog:)\s+(\d{5})/;
+                const recordDurationRegx = /(?:Record Duration:|REC\sCycle:)\s+(\d{3}[dD]\s\d{2}[hH]\s\d{2}[Mmin])/;
+                const startTimeRegx = /(?:Start|Starting)\sTime:\s+(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})/;
+                const stopTimeRegx = /Stop\sTime:\s+(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})/;
+
+                const numberOfRecords = lines.filter(line => numberOfRecordsRegx.test(line)).map(line => line.match(numberOfRecordsRegx)[1])[0];
+                const serialNumber = lines.filter(line => serialRegx.test(line)).map(line => line.match(serialRegx)[1])[0]; 
+                const sensors = lines.filter(line => sensorsRegx.test(line)).map(line => line.match(sensorsRegx)[1])[0];
+                const recordDuration = lines.filter(line => recordDurationRegx.test(line)).map(line => line.match(recordDurationRegx)[1])[0];
+                const startTime = lines.filter(line => startTimeRegx.test(line)).map(line => line.match(startTimeRegx)[1])[0];
+                const stopTime = lines.filter(line => stopTimeRegx.test(line)).map(line => line.match(stopTimeRegx)[1])[0];
+                const recordInterval = lines.filter(line => recordIntervalRegx.test(line)).map(line => line.match(recordIntervalRegx)[1])[0];
+
+                metadataContainer.innerHTML = `
+                    <ul>
+                        <li>Серийный номер монитора: ${serialNumber ?? "Не указан"}</li>
+                        <li>Тип датчика: ${sensors}</li>
+                        <li>Интервал записи: ${recordInterval}</li>
+                        <li>Количество записей: ${numberOfRecords}</li>
+                        <li>Длительность записи: ${recordDuration}</li>
+                        <li>Время начала: ${startTime}</li>
+                        <li>Время окончания: ${stopTime}</li>
+                    </ul>
+                `;
+            }
+
+            async function readPdfFile(e) {
+                const file = e.target.files[0]; 
+                if (!file) return;
+                const buffer = await file.arrayBuffer();
+                pdfjsLib.getDocument({ data: buffer }).promise
+                    .then(pdf => pdf.getPage(3))
+                    .then(page => page.getTextContent())
+                    .then(tc => console.log('Text items:', tc.items))
+                    .catch(err => console.error(err));
+
+                const pdf = await pdfjsLib.getDocument({ data: buffer, useWorkerFetch: false, cMapUrl: 'libs/pdfjs/cmaps/', cMapPacked: true }).promise;
+                let lines = [];
+                for (let p = 1; p <= pdf.numPages; p++) {
+                const page = await pdf.getPage(p);
+                const content = await page.getTextContent();
+                console.log(content);
+                const map = {}; //словарь с ключом - координатой текста, значением - массивом строк текста
+                content.items.forEach(item => {
+                    const txt = item.str.trim(); if (!txt) return;
+                    // Округление координаты y текста, чтобы сгруппировать текст, находящийся примерно на одной строке
+                    const y = Math.round(item.transform[5]);
+                    const x = item.transform[4];
+                    // Если даннного ключа-координаты нет в тексте, то добавляем пустой массив для данного ключа
+                    if (!map[y]) map[y] = [];
+                    map[y].push({ str: txt, x });
+                });
+                Object.keys(map).map(Number).sort((a, b) => b - a).forEach(y => {
+                    lines.push(map[y].sort((a, b) => a.x - b.x).map(i => i.str).join('  ')); // Соединитель - "два пробела"!
+                });
+                console.log('PDF lines:', lines);
+                }
+
+                clearTextInput();
+
+                parsePdfMetadata(lines.slice(0,100)); //парсим первые 100 строк для получения метаданных
+
+                lines = lines.filter(line => /^\d{5}/.test(line));
+                dataInput.value = lines.join("\n");
+                processLines(lines);
+            }
+
+            function processLines(lines){
+                clearNotifications();
+
+                const result = parseLines(lines);
+
+                if (result){
+                    setRowsState(result);
+                    renderTable(result);
+                }
+
+                renderErrors();
+            }
+
+            function parseLines(lines){
+                const res = [];
+                let baseRowDateTime = null;
+                let currentLineNumber = null;
+                const lastRowIndex = lines.length - 1;
+                const dataTimeStepInMilliSeconds = 30 * 60 * 1000;
+
+                const dateTimeFormatType = detectDateTimeFormat(lines[0]);
+                const dataFormatType = detectDataFormat(lines[0]);
+                const dataColOffset = dataFormatType == "radon_temp_humid" ? 3 : 1;
+
+                if (dateTimeFormatType == null || dataFormatType == null){
+                    notifyUser(`Формат ${dateTimeFormatType == null ? "даты или времени" : "данных"} не определен. Попробуйте изменить формат даты согласно формату, заданному в файле отчета.`)
+                    console.log(`Error: Undefined ${dateTimeFormatType == null ? "date fortmat" : "data format"}`);
+                    return [];
+                }
+
+                for (const [i, line] of lines.entries()) {
+                    const parts = line.split(lineSplitRegex).map(v => v.trim());
+                    currentLineNumber = parseInt(parts[0]);
+                    baseRowDateTime = parseCurrentDateTime(
+                        parts[1], 
+                        dateTimeFormatType,
+                        baseRowDateTime, 
+                        i < lastRowIndex ? lines[i + 1].split(lineSplitRegex)[1].trim() : null
+                    );
+
+                    if (baseRowDateTime === null)
+                    {
+                        console.log("Timestamp is broken. Following data parsing is impossible.");
+                        notifyUser("Парсинг не удался из-за неправильной временной метки. Проверьте, что ваши данные содержат дату в первой строке.", "Error");
+                        return [];
+                    }
+                    
+                    let j = 0;
+                    while ((2 + j * dataColOffset) < parts.length){
+                        const idx = 2 + j * dataColOffset;
+                        const recordDateTime = new Date(baseRowDateTime.getTime() + dataTimeStepInMilliSeconds * j);
+                        const radon = parseFloat(parts[idx]?.replace(',','.'));
+                        const temperature = dataFormatType == "radon_temp_humid" ? parseFloat(parts[idx + 1]?.replace(',','.')) : null;
+                        const humidity = dataFormatType == "radon_temp_humid" ? parseFloat(parts[idx + 2]?.replace(',','.')) : null;
+                        res.push({
+                            line: currentLineNumber,
+                            timestamp: recordDateTime,
+                            radon,
+                            temperature: isNaN(temperature) ? null : temperature,
+                            humidity: isNaN(humidity) ? null : humidity
+                        });
+                        j += 1;
+                    }
+                    
+                }
+                //res.sort((a, b) => a.timestamp - b.timestamp);
+                return res;
+            }
+
+            function formatDate(date){
+                const formatter = Intl.DateTimeFormat([], {
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false
+                });
+                return formatter.format(date).replace(',', '');
+            }
+
+            function renderTable(data){
+                const container = $("tablesContainer");
+                container.replaceChildren();
+
+                const table = document.createElement('table');
+                const thead = document.createElement('thead');
+                const tbody = document.createElement('tbody');
+
+                thead.innerHTML = `
+                    <tr>
+                        <th>#</th>
+                        <th>Номер строки в наборе данных</th>
+                        <th>Дата и время</th>
+                        <th>ОА радона, Бк/м³</th>
+                        <th>Температура, °C</th>
+                        <th>Отн. влажность, %</th>
+                    </tr>
+                `;
+                data.forEach((row, i) =>{
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${i + 1}</td>
+                        <td>${row.line}</td>
+                        <td>${formatDate(row.timestamp)}</td>
+                        <td>${row.radon}</td>
+                        <td>${row.temperature ?? "-"}</td>
+                        <td>${row.humidity ?? "-"}</td>
+                    `;
+                    tbody.appendChild(tr);
+                })
+                table.appendChild(thead);
+                table.appendChild(tbody);
+                container.appendChild(table);
+            }
+
+            function renderErrors(){
+                if (messages.length > 0){
+                    const ul_box = document.createElement('ul');
+                    messages.forEach(msg => {
+                        const elemLi = document.createElement('li');
+                        elemLi.innerText = msg.text;
+                        ul_box.appendChild(elemLi);
+                    });
+                    alertBox.appendChild(ul_box);
+                    alertBox.classList.remove('hidden');
+                } 
+                else {
+                    alertBox.replaceChildren();
+                    alertBox.classList.add('hidden');
+                }  
+                
+            }
+
+            function setRowsState(rows) {
+                if (!rows.length) return;
+
+                state.rows = rows.map(r => ({
+                    t: r.timestamp.getTime(),
+                    y: r.radon,
+                    temp: r.temperature,
+                    humid: r.humidity,
+                }));
+
+                exportToBufferBtn.disabled = false;
+                exportToBufferInterpolatedBtn.classList.add("hidden");
+                resetView();
+                render();
+            }
+
+            function interpolate(targetMs, selectorFunc, rows){
+                let low = null, high = null;
+                for (let i = 0; i < rows.length - 1; i++){
+                    const t0 = rows[i].t;
+                    const t1 = rows[i + 1].t;
+                    if (t0 <= targetMs && targetMs <= t1){
+                        low = rows[i];
+                        high = rows[i + 1];
+                        break;
+                    }
+                }
+                if (low === null || high === null) return null;
+
+                const y0 = selectorFunc(low), y1 = selectorFunc(high);
+                if (y0 === null || y1 === null) return null;
+
+                const alpha = (targetMs - low.t) / (high.t - low.t);
+                const result = y0 + alpha * (y1 - y0);
+                return result.toFixed(1);
+            }
+
+            function exportToBuffer(type="source"){
+                const srows = type === "source" ? state.rows : state.interpolatedRows;
+
+                if (srows.length === 0) return;
+
+                const headers = ["#", "Дата и время", "ОА радона, Бк/м³", "Температура, °C", "Отн. влажность, %"];
+
+                const rows = srows.map((r, i) => [
+                    i + 1,
+                    formatDate(new Date(r.t)),
+                    r.y   != null ? r.y    : "",
+                    r.temp  != null ? r.temp   : "",
+                    r.humid != null ? r.humid  : "",
+                ]);
+
+                const tsv = [headers, ...rows]
+                    .map(row => row.join("\t"))
+                    .join("\n");
+
+                navigator.clipboard.writeText(tsv)
+                    .then(() => {
+                        const btn = type === "source" ? exportToBufferBtn : exportToBufferInterpolatedBtn;
+                        const original = btn.textContent;
+                        btn.textContent = "✓ Скопировано!";
+                        btn.disabled = true;
+                        setTimeout(() => {
+                            btn.textContent = original;
+                            btn.disabled = false;
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        console.error("Clipboard error:", err);
+                        alert("Не удалось скопировать: " + err.message);
+                    });
+            }
+
+            function bringSeriesToFullHour(){
+                if (state.rows.length == 0) return;
+
+                const startTimestamp = new Date(state.rows[0].t);
+                const lastTimestamp = new Date(state.rows[state.rows.length - 1].t);
+                const startHour = new Date(startTimestamp);
+                startHour.setMinutes(0, 0, 0);
+
+                if (startTimestamp.getMinutes() !== 0 || startTimestamp.getSeconds() !== 0){
+                    startHour.setHours(startHour.getHours() + 1);
+                }
+
+                const endHour = new Date(lastTimestamp);
+                endHour.setMinutes(0, 0, 0);
+
+                const hourlyTimestamps = [];
+                for (let t = new Date(startHour); t <= endHour; t = new Date(t.getTime() + 3600_000)){
+                    hourlyTimestamps.push(new Date(t));
+                }
+
+                state.interpolatedRows = hourlyTimestamps.map(ts => {
+                    const ms = ts.getTime();
+                    return {
+                        t: ts,
+                        y: interpolate(ms, r => r.y, state.rows),
+                        temp: interpolate(ms, r => r.temp, state.rows),
+                        humid: interpolate(ms, r => r.humid, state.rows),
+                    };
+                });
+
+                renderInterpolatedTable(state.interpolatedRows);
+
+                exportToBufferInterpolatedBtn.classList.remove("hidden");
+            }
+
+            function renderInterpolatedTable(data){
+                const container = $("tablesContainer");
+                if (container.children.length > 1) {
+                    container.removeChild(container.lastChild);
+                }
+                const table = document.createElement('table');
+                const thead = document.createElement('thead');
+                const tbody = document.createElement('tbody');
+
+                thead.innerHTML = `
+                    <tr>
+                        <th>#</th>
+                        <th>Дата и время</th>
+                        <th>ОА радона, Бк/м³</th>
+                        <th>Температура, °C</th>
+                        <th>Отн. влажность, %</th>
+                    </tr>
+                `;
+                data.forEach((row, i) =>{
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${i + 1}</td>
+                        <td>${formatDate(row.t)}</td>
+                        <td>${row.y}</td>
+                        <td>${row.temp ?? "-"}</td>
+                        <td>${row.humid ?? "-"}</td>
+                    `;
+                    tbody.appendChild(tr);
+                })
+                table.classList.add("ml-5");
+                table.appendChild(thead);
+                table.appendChild(tbody);
+                container.appendChild(table);
+            }
+
+            
+
+            $("resetZoomBtn").addEventListener("click", () => {
+                resetView();
+                render();
+            });
+
+            $("logYBtn").addEventListener("click", () => {
+                state.logY = !state.logY;
+                $("logYBtn").textContent = `Log Y: ${state.logY ? "ON" : "OFF"}`;
+                render();
+            });
+
+
+            function drawEmptyState() {
+                    const parent = canvas.parentElement;
+                    const W = parent.clientWidth, H = parent.clientHeight;
+                    ctx.save();
+                    ctx.fillStyle = "#fff";
+                    ctx.fillRect(0, 0, W, H);
+                    ctx.fillStyle = "#6b7280";
+                    ctx.font = "16px system-ui, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("Загрузите временную серию, чтобы увидеть график", W / 2, H / 2 - 10);
+                    ctx.restore();
+                }
+
+            function resetView() {
+                const xs = state.rows.map(r => r.t).filter(Number.isFinite);
+                const ys = state.rows.map(r => r.y).filter(Number.isFinite);
+                if (!xs.length || !ys.length) {
+                state.viewMinX = 0; state.viewMaxX = 1;
+                state.viewMinY = 0; state.viewMaxY = 1;
+                return;
+                }
+                const xmin = Math.min(...xs), xmax = Math.max(...xs);
+                const ymin = Math.min(...ys), ymax = Math.max(...ys);
+                const dx = xmax - xmin || 1;
+                const dy = ymax - ymin || 1;
+                state.dataMinX = xmin; state.dataMaxX = xmax;
+                state.dataMinY = ymin; state.dataMaxY = ymax;
+                state.viewMinX = xmin - dx * 0.05;
+                state.viewMaxX = xmax + dx * 0.05;
+                state.viewMinY = ymin - dy * 0.08;
+                state.viewMaxY = ymax + dy * 0.08;
+            }
+
+            function transformY(y) {
+                if (!state.logY) return y;
+                // защита от <=0
+                return Math.log10(Math.max(y, 1e-12));
+            }
+
+            function inverseTransformY(y) {
+                if (!state.logY) return y;
+                return Math.pow(10, y);
+            }
+
+            function xToPx(x) {
+                const w = canvas.clientWidth - M.l - M.r; // Ширина области просмотра
+                return M.l + (x - state.viewMinX) / (state.viewMaxX - state.viewMinX) * w;
+            }
+            function yToPx(y) {
+                const h = canvas.clientHeight - M.t - M.b;
+                const yy = transformY(y);
+                const minY = transformY(state.viewMinY);
+                const maxY = transformY(state.viewMaxY);
+                return (M.t + (1 - (yy - minY) / (maxY - minY)) * h);
+            }
+            function pxToX(px) {
+                const w = canvas.clientWidth - M.l - M.r;
+                return state.viewMinX + (px - M.l) / w * (state.viewMaxX - state.viewMinX);
+            }
+            function pxToY(py) {
+                const h = canvas.clientHeight - M.t - M.b;
+                const minY = transformY(state.viewMinY);
+                const maxY = transformY(state.viewMaxY);
+                const yy = maxY - ((py - M.t) / h) * (maxY - minY);
+                return inverseTransformY(yy);
+            }
+
+            function niceNum(range, round) {
+                const exponent = Math.floor(Math.log10(range));
+                const fraction = range / Math.pow(10, exponent);
+                let niceFraction;
+                if (round) {
+                if (fraction < 1.5) niceFraction = 1;
+                else if (fraction < 3) niceFraction = 2;
+                else if (fraction < 7) niceFraction = 5;
+                else niceFraction = 10;
+                } else {
+                if (fraction <= 1) niceFraction = 1;
+                else if (fraction <= 2) niceFraction = 2;
+                else if (fraction <= 5) niceFraction = 5;
+                else niceFraction = 10;
+                }
+                return niceFraction * Math.pow(10, exponent);
+            }
+
+            function niceTicks(min, max, count = 7) {
+                if (!isFinite(min) || !isFinite(max) || min === max) return [min];
+                const range = niceNum(max - min, false);
+                const step = niceNum(range / (count - 1), true);
+                const start = Math.floor(min / step) * step;
+                const stop = Math.ceil(max / step) * step + step * 0.5;
+                const vals = [];
+                for (let v = start; v <= stop; v += step) vals.push(+v.toFixed(12));
+                return vals;
+            }
+
+            function formatY(v) {
+                const abs = Math.abs(v);
+                if (abs >= 1000 || (abs > 0 && abs < 0.01)) return v.toExponential(2);
+                if (abs >= 100) return v.toFixed(0);
+                if (abs >= 10) return v.toFixed(1);
+                if (abs >= 1) return v.toFixed(2);
+                return v.toFixed(3);
+            }
+
+            function chooseTimeFormatter(rangeMs) {
+                const day = 86400000;
+                const hour = 3600000;
+                const minute = 60000;
+                if (rangeMs >= 7 * day) return ms => {
+                const d = new Date(ms); return d.toLocaleDateString();
+                };
+                if (rangeMs >= 2 * day) return ms => {
+                const d = new Date(ms);
+                return d.toLocaleDateString([], { month: "2-digit", day: "2-digit" }) + "\n" + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                };
+                if (rangeMs >= 2 * hour) return ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                if (rangeMs >= 5 * minute) return ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                return ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            }
+
+            function nearestPoint(px, py) {
+                let best = { idx: -1, dist2: Infinity };
+                for (let i = 0; i < state.rows.length; i++) {
+                const r = state.rows[i];
+                if (!isFinite(r.t) || !isFinite(r.y)) continue;
+                const x = xToPx(r.t);
+                const y = yToPx(r.y);
+                const dx = x - px;
+                const dy = y - py;
+                const d2 = dx*dx + dy*dy;
+                if (d2 < best.dist2) best = { idx: i, dist2: d2 };
+                }
+                return best;
+            }
+
+            function visibleRangeIndices(x0, x1) {
+                const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+                const idxs = [];
+                for (let i = 0; i < state.rows.length; i++) {
+                const t = state.rows[i].t;
+                if (t >= lo && t <= hi) idxs.push(i);
+                }
+                return idxs;
+            }
+
+            function drawGridAndAxes() {
+                const W = canvas.clientWidth;
+                const H = canvas.clientHeight;
+                const x0 = M.l, y0 = M.t, x1 = W - M.r, y1 = H - M.b;
+
+                // frame + grid
+                ctx.save();
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1;
+
+                let yTicks;
+                if (state.logY) {
+                const minPow = Math.floor(
+                    Math.log10(Math.max(state.viewMinY, 1e-12))
+                );
+
+                const maxPow = Math.ceil(
+                    Math.log10(Math.max(state.viewMaxY, 1e-12))
+                );
+                yTicks = [];
+                for (let p = minPow; p <= maxPow; p++) {
+                    yTicks.push(Math.pow(10, p));
+                }
+                } else {
+                yTicks = niceTicks(
+                    state.viewMinY,
+                    state.viewMaxY,
+                    7
+                );
+                }
+                for (const v of yTicks) {
+                const y = yToPx(v);
+                ctx.beginPath();
+                ctx.moveTo(x0, y);
+                ctx.lineTo(x1, y);
+                ctx.stroke();
+                }
+
+                const xTicks = niceTicks(state.viewMinX, state.viewMaxX, 7);
+                for (const v of xTicks) {
+                const x = xToPx(v);
+                ctx.beginPath();
+                ctx.moveTo(x, y0);
+                ctx.lineTo(x, y1);
+                ctx.stroke();
+                }
+
+                // axes lines
+                ctx.strokeStyle = "#374151";
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(x0, y0);
+                ctx.lineTo(x0, y1);
+                ctx.lineTo(x1, y1);
+                ctx.stroke();
+
+                // ticks + labels
+                ctx.fillStyle = "#111827";
+                ctx.strokeStyle = "#9ca3af";
+                ctx.lineWidth = 1;
+                ctx.font = "12px system-ui, sans-serif";
+
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+                for (const v of yTicks) {
+                const y = yToPx(v);
+                ctx.beginPath();
+                ctx.moveTo(x0 - 5, y);
+                ctx.lineTo(x0, y);
+                ctx.stroke();
+                ctx.fillText(
+                state.logY
+                    ? `10^${Math.round(Math.log10(v))}`
+                    : formatY(v),
+                x0 - 8,
+                y
+                );
+                }
+
+                const fmtTime = chooseTimeFormatter(state.viewMaxX - state.viewMinX);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                for (const v of xTicks) {
+                const x = xToPx(v);
+                ctx.beginPath();
+                ctx.moveTo(x, y1);
+                ctx.lineTo(x, y1 + 5);
+                ctx.stroke();
+                const label = fmtTime(v);
+                const lines = String(label).split("\n");
+                const yy = y1 + 7;
+                lines.forEach((line, idx) => ctx.fillText(line, x, yy + idx * 13));
+                }
+
+                // axis titles
+                ctx.fillStyle = "#6b7280";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("Дата и время", (x0 + x1) / 2, H - 6);
+                ctx.save();
+                ctx.translate(16, (y0 + y1) / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("ОА радона, Бк/м³", 0, 0);
+                ctx.restore();
+                ctx.restore();
+            }
+
+            function drawSeries() {
+                if (!state.rows.length) return;
+
+                const plotX = M.l;
+                const plotY = M.t;
+                const plotW = canvas.clientWidth - M.l - M.r;
+                const plotH = canvas.clientHeight - M.t - M.b;
+
+                ctx.save();
+
+                // Ограничение области построения
+                ctx.beginPath();
+                ctx.rect(plotX, plotY, plotW, plotH);
+                ctx.clip();
+
+                ctx.lineWidth = 1.6;
+
+                ctx.beginPath();
+
+                let started = false;
+
+                for (const r of state.rows) {
+                    if (!isFinite(r.t) || !isFinite(r.y)) continue;
+
+                    const x = xToPx(r.t);
+                    const y = yToPx(r.y);
+
+                    if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                    } else {
+                    ctx.lineTo(x, y);
+                    }
+                }
+
+                ctx.strokeStyle = "#1f2937";
+                ctx.stroke();
+
+                // Точки
+                for (let i = 0; i < state.rows.length; i++) {
+                    const r = state.rows[i];
+
+                    if (!isFinite(r.t) || !isFinite(r.y)) continue;
+
+                    const x = xToPx(r.t);
+                    const y = yToPx(r.y);
+
+                    const hovered = i === state.cursorIndex;
+
+                    let fill = "#6b7280";
+
+                    if (r.flag === 1) fill = "#dc2626";
+                    if (r.flag === 0) fill = "#2563eb";
+
+                    const radius = hovered ? 5.5 : 3.8;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+                    ctx.fillStyle = fill;
+                    ctx.fill();
+
+                    ctx.lineWidth = hovered ? 2 : 1;
+                    ctx.strokeStyle = "#fff";
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+                }
+
+                function drawCursor() {
+                    if (state.cursorIndex < 0 || state.cursorIndex >= state.rows.length) return;
+                    const r = state.rows[state.cursorIndex];
+                    if (!isFinite(r.t) || !isFinite(r.y)) return;
+                    const x = xToPx(r.t), y = yToPx(r.y);
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(17,24,39,.35)";
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(x, M.t);
+                    ctx.lineTo(x, canvas.clientHeight - M.b);
+                    ctx.moveTo(M.l, y);
+                    ctx.lineTo(canvas.clientWidth - M.r, y);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    ctx.save();
+                    
+                const tooltipLines = [
+                    `X: ${formatDate(r.t)}`,
+                    `Y: ${r.y.toFixed(3)}`
+                    ];
+
+                    if (r.fit) {
+                    tooltipLines.push(`C0: ${r.fit.C0.toFixed(4)}`);
+                    tooltipLines.push(`Phi: ${r.fit.phi.toFixed(6)}`);
+                    tooltipLines.push(`Lambda: ${r.fit.lambda.toFixed(10)}`);
+                    }
+
+                    const label = tooltipLines;
+
+                    const padX = 8, padY = 6;
+                    ctx.font = "12px system-ui, sans-serif";
+                    const lineWidths = label.map(line => ctx.measureText(line).width);
+                    const boxW = Math.max(...lineWidths) + padX * 2;
+                    const boxH = label.length * 18 + padY * 2;
+                    const topPadding = 8;
+
+                    let bx = x - boxW / 2;
+
+                    // Ограничиваем tooltip внутри plotting area
+                    bx = Math.max(M.l + 4, bx);
+                    bx = Math.min(
+                    canvas.clientWidth - M.r - boxW - 4,
+                    bx
+                    );
+
+                    // Фиксированная позиция сверху
+                    const by = M.t + topPadding;
+                    
+                    ctx.fillStyle = "rgba(17,24,39,.82)";
+                    ctx.strokeStyle = "rgba(255,255,255,.15)";
+                    roundRect(ctx, bx, by, boxW, boxH, 8);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = "#ffffff";
+                    ctx.textAlign = "left";
+                    ctx.textBaseline = "top";
+
+                    label.forEach((line, idx) => {
+                    ctx.fillText(line, bx + padX, by + padY + idx * 18);
+                    });
+                    ctx.restore();
+                }
+
+                function roundRect(ctx, x, y, w, h, r) {
+                    const rr = Math.min(r, w / 2, h / 2);
+                    ctx.beginPath();
+                    ctx.moveTo(x + rr, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, rr);
+                    ctx.arcTo(x + w, y + h, x, y + h, rr);
+                    ctx.arcTo(x, y + h, x, y, rr);
+                    ctx.arcTo(x, y, x + w, y, rr);
+                    ctx.closePath();
+                }
+
+                function render() {
+                    if (!state.rows.length) {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        drawEmptyState()
+                        return;
+                    }
+                    resizeCanvas();
+                    drawGridAndAxes();
+                    drawSeries();
+                    drawCursor();
+                }
+
+
+                function resizeCanvas() {
+                    const ratio = window.devicePixelRatio || 1;
+                    const parent = canvas.parentElement;
+                    const w = parent.clientWidth;
+                    const h = parent.clientHeight;
+                    if (canvas.width === Math.round(w * ratio) && canvas.height === Math.round(h * ratio)) return;
+                    
+                    canvas.width = Math.max(2, Math.round(w * ratio));
+                    canvas.height = Math.max(2, Math.round(h * ratio));
+                    // const rect = canvas.getBoundingClientRect();
+                    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                }
+
+                // Mouse / pointer interactions
+                function canvasPos(ev) {
+                    const rect = canvas.getBoundingClientRect();
+                    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+                }
+
+                canvas.addEventListener("pointerdown", ev => {
+                    if (!state.rows.length) return;
+                    canvas.setPointerCapture(ev.pointerId);
+                    const p = canvasPos(ev);
+                    state.dragging = true;
+                    state.panning = true;
+                    state.dragStart = { ...p };
+                    state.lastPt = { ...p };
+                });
+
+                canvas.addEventListener("pointermove", ev => {
+                    const p = canvasPos(ev);
+                    state.mouseX = p.x;
+                    state.mouseY = p.y;
+
+                    if (state.rows.length) {
+                        state.cursorIndex = nearestPoint(p.x, p.y).idx;
+                    }
+
+                    if (!state.dragging || !state.panning) {
+                        render();
+                        return;
+                    }
+
+                    const W = canvas.clientWidth  - M.l - M.r;
+                    const H = canvas.clientHeight - M.t - M.b;
+
+                    // --- PAN X ---
+                    const dx = p.x - state.lastPt.x;
+                    const scaleX = (state.viewMaxX - state.viewMinX) / Math.max(1, W);
+                    const shiftX = dx * scaleX;
+
+                    state.viewMinX -= shiftX;
+                    state.viewMaxX -= shiftX;
+
+                    // Ограничение по X
+                    const fullRangeX  = state.dataMaxX - state.dataMinX || 1;
+                    const currentRangeX = state.viewMaxX - state.viewMinX;
+                    const padX = fullRangeX * 0.05;
+
+                    if (state.viewMinX < state.dataMinX - padX) {
+                        state.viewMinX = state.dataMinX - padX;
+                        state.viewMaxX = state.viewMinX + currentRangeX;
+                    }
+                    if (state.viewMaxX > state.dataMaxX + padX) {
+                        state.viewMaxX = state.dataMaxX + padX;
+                        state.viewMinX = state.viewMaxX - currentRangeX;
+                    }
+
+                    // --- PAN Y (логарифмический и линейный) ---
+                    const dy = p.y - state.lastPt.y;
+
+                    if (state.logY) {
+                        // В лог-пространстве смещение пропорционально диапазону log10
+                        const minTY  = Math.log10(Math.max(state.viewMinY, 1e-12));
+                        const maxTY  = Math.log10(Math.max(state.viewMaxY, 1e-12));
+                        const shiftTY = (dy / Math.max(1, H)) * (maxTY - minTY);
+                        state.viewMinY = Math.pow(10, minTY + shiftTY);
+                        state.viewMaxY = Math.pow(10, maxTY + shiftTY);
+                    } else {
+                        // Линейный: прямое соответствие пикселей и единиц данных
+                        const scaleY = (state.viewMaxY - state.viewMinY) / Math.max(1, H);
+                        const shiftY = dy * scaleY;
+                        state.viewMinY += shiftY;
+                        state.viewMaxY += shiftY;
+                    }
+
+                    // Ограничение по Y
+                    const fullRangeY    = state.dataMaxY - state.dataMinY || 1;
+                    const currentRangeY = state.viewMaxY - state.viewMinY;
+                    const padY = fullRangeY * 2;
+
+                    if (state.viewMinY < state.dataMinY - padY) {
+                        state.viewMinY = state.dataMinY - padY;
+                        state.viewMaxY = state.viewMinY + currentRangeY;
+                    }
+                    if (state.viewMaxY > state.dataMaxY + padY) {
+                        state.viewMaxY = state.dataMaxY + padY;
+                        state.viewMinY = state.viewMaxY - currentRangeY;
+                    }
+
+                    state.lastPt = { ...p };
+                    render();
+                });
+
+                canvas.addEventListener("pointerup", ev => {
+                    state.dragging = false;
+                    state.panning  = false;
+                    state.lastPt   = null;
+                    render();
+                });
+
+                canvas.addEventListener("contextmenu", ev => ev.preventDefault());
+
+                canvas.addEventListener("pointerleave", () => {
+                    state.cursorIndex = -1;
+                    if (!state.dragging) render();
+                });
+
+                canvas.addEventListener("wheel", ev => {
+                    if (!state.rows.length) return;
+                    ev.preventDefault();
+
+                    const p      = canvasPos(ev);
+                    const factor = ev.deltaY < 0 ? 0.9 : 1.1;
+
+                    if (ev.shiftKey) {
+                        // --- ZOOM Y ---
+                        const yAtCursor  = pxToY(p.y);
+                        const rangeY     = state.viewMaxY - state.viewMinY;
+                        const fullRangeY = state.dataMaxY - state.dataMinY || 1;
+                        let newRangeY    = Math.max(
+                            Math.max(1e-6, fullRangeY * 0.0005),
+                            Math.min(fullRangeY * 50, rangeY * factor)
+                        );
+                        const topFrac    = (state.viewMaxY - yAtCursor) / rangeY;
+                        state.viewMaxY   = yAtCursor + topFrac * newRangeY;
+                        state.viewMinY   = state.viewMaxY - newRangeY;
+                        render();
+                        return;
+                    }
+
+                    // --- ZOOM X ---
+                    const xAtCursor  = pxToX(p.x);
+                    const rangeX     = state.viewMaxX - state.viewMinX;
+                    const fullRangeX = state.dataMaxX - state.dataMinX || 1;
+                    let newRangeX    = Math.max(
+                        Math.max(60000, fullRangeX * 0.0005),
+                        Math.min(fullRangeX * 50, rangeX * factor)
+                    );
+                    const leftFrac   = (xAtCursor - state.viewMinX) / rangeX;
+                    state.viewMinX   = xAtCursor - leftFrac * newRangeX;
+                    state.viewMaxX   = state.viewMinX + newRangeX;
+
+                    const padX = fullRangeX * 0.05;
+                    if (state.viewMinX < state.dataMinX - padX) {
+                        state.viewMinX = state.dataMinX - padX;
+                        state.viewMaxX = state.viewMinX + newRangeX;
+                    }
+                    if (state.viewMaxX > state.dataMaxX + padX) {
+                        state.viewMaxX = state.dataMaxX + padX;
+                        state.viewMinX = state.viewMaxX - newRangeX;
+                    }
+                    render();
+                }, { passive: false });
+
+                canvas.addEventListener("wheel", ev => {
+                    if (!state.rows.length) return;
+
+                    ev.preventDefault();
+
+                    const p = canvasPos(ev);
+
+                    // zoom in/out
+                    const factor = ev.deltaY < 0 ? 0.9 : 1.1;
+
+                    // =====================================================
+                    // SHIFT + WHEEL -> масштаб по Y
+                    // =====================================================
+                    if (ev.shiftKey) {
+
+                        const yAtCursor = pxToY(p.y);
+
+                        const rangeY = state.viewMaxY - state.viewMinY;
+
+                        let newRangeY = rangeY * factor;
+
+                        const fullRangeY = state.dataMaxY - state.dataMinY || 1;
+
+                        const minRangeY = Math.max(1e-6, fullRangeY * 0.0005);
+                        const maxRangeY = fullRangeY * 50;
+
+                        newRangeY = Math.max(
+                        minRangeY,
+                        Math.min(maxRangeY, newRangeY)
+                        );
+
+                        const topFrac =
+                        (state.viewMaxY - yAtCursor) / rangeY;
+
+                        state.viewMaxY =
+                        yAtCursor + topFrac * newRangeY;
+
+                        state.viewMinY =
+                        state.viewMaxY - newRangeY;
+
+                        render();
+                        return;
+                    }
+
+                    // =====================================================
+                    // Обычный zoom по X
+                    // =====================================================
+
+                    const xAtCursor = pxToX(p.x);
+
+                    const rangeX = state.viewMaxX - state.viewMinX;
+
+                    let newRangeX = rangeX * factor;
+
+                    const fullRangeX = state.dataMaxX - state.dataMinX || 1;
+
+                    const minRangeX = Math.max(
+                        60000,
+                        fullRangeX * 0.0005
+                    );
+
+                    const maxRangeX = fullRangeX * 50;
+
+                    newRangeX = Math.max(
+                        minRangeX,
+                        Math.min(maxRangeX, newRangeX)
+                    );
+
+                    const leftFrac =
+                        (xAtCursor - state.viewMinX) / rangeX;
+
+                    state.viewMinX =
+                        xAtCursor - leftFrac * newRangeX;
+
+                    state.viewMaxX =
+                        state.viewMinX + newRangeX;
+
+                    // Ограничение pan/zoom по X
+                    if (
+                        state.viewMinX <
+                        state.dataMinX - fullRangeX * 0.05
+                    ) {
+                        state.viewMinX =
+                        state.dataMinX - fullRangeX * 0.05;
+
+                        state.viewMaxX =
+                        state.viewMinX + newRangeX;
+                    }
+
+                    if (
+                        state.viewMaxX >
+                        state.dataMaxX + fullRangeX * 0.05
+                    ) {
+                        state.viewMaxX =
+                        state.dataMaxX + fullRangeX * 0.05;
+
+                        state.viewMinX =
+                        state.viewMaxX - newRangeX;
+                    }
+
+                    render();
+
+                    }, { passive: false });
+
+                document.addEventListener("keydown", ev => {
+                    // no-op; Ctrl is handled by pointer state directly
+                    if (ev.key === "Escape") {
+                        render();
+                    }
+                });
+
+            parseBtn.addEventListener('click', () => {readTextInput();});
+            pdfInput.addEventListener('change', async (e) => {readPdfFile(e)});
+            clearInputBtn.addEventListener('click', () => {dataInput.value = "";});
+            exportToBufferBtn.addEventListener('click', () => exportToBuffer());
+            exportToBufferInterpolatedBtn.addEventListener('click', () => exportToBuffer("interpolated"));
+            bringToFullHourBtn.addEventListener('click', () => bringSeriesToFullHour());
+
+            window.addEventListener("resize", () => render());
+            document.addEventListener('DOMContentLoaded', () => {
+                resizeCanvas();
+                drawEmptyState();
+            });
+        </script>
+    </body>
 </html>
