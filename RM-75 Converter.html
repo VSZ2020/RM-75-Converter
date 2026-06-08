@@ -221,6 +221,14 @@ NO.       Time       Bq/m3       ℃        %   Bq/m3       ℃        %   Bq/m3
         <section class="card mb-5"> 
             <div class="title mb-3">Распарсенные данные</div>
             <div class="toolbar mb-5">
+                <div>
+                    <span>Формат даты для отображения</span>
+                    <input type="radio" id="isEnFormatRadio" name="lang" checked>
+                    <label for="isEnFormatRadio">yyyy-mm-dd HH:MM</label>
+                    
+                    <input type="radio" id="isRuFormatRadio" name="lang">
+                    <label for="isRuFormatRadio">dd.mm.yyyy HH:MM</label>
+                </div>
                 <button id="exportToBufferBtn" class="btn" disabled>Экспорт данных в Буфер обмена</button>
                 <button id="bringToFullHourBtn" class="btn">Привести данные к полному часу</button>
                 <button id="exportToBufferInterpolatedBtn" class="btn hidden">Экспорт интерполированных данных в Буфер обмена</button>
@@ -535,7 +543,8 @@ NO.       Time       Bq/m3       ℃        %   Bq/m3       ℃        %   Bq/m3
             }
 
             function formatDate(date){
-                const formatter = Intl.DateTimeFormat([], {
+                const locale = $("isEnFormatRadio").checked ? "sv-SE" : "ru-RU";
+                const formatter = Intl.DateTimeFormat(locale, {
                     year: "numeric",
                     month: "2-digit",
                     day: "2-digit",
